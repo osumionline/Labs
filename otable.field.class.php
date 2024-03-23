@@ -7,7 +7,6 @@ use Attribute;
 #[Attribute]
 class OTableField {
 	public function __construct(
-		public string  $name,
 		public int     $type,
 		public mixed   $default = null,
 		public bool    $incr = true,

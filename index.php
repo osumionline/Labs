@@ -3,10 +3,12 @@
 namespace OsumiFramework;
 
 require_once('defines.php');
+require_once('config.php');
 require_once('otable.class.php');
 require_once('otable.field.class.php');
 require_once('omodel.class.php');
 require_once('odb.container.class.php');
+require_once('odb.class.php');
 
 use OsumiFramework\OFW\DB\OModel;
 use OsumiFramework\OFW\DB\OTable;
@@ -18,39 +20,34 @@ $db_container = new ODBContainer();
 #[OTable(name: "user")]
 class User extends OModel {
 	#[OTableField(
-		name: "id",
 		type: OMODEL_PK,
 		comment: "Id del usuario"
 	)]
 	protected int | null $id;
 
 	#[OTableField(
-		name: "nombre",
 		type: OMODEL_TEXT,
 		comment: "Nombre del usuario"
 	)]
 	protected string | null $nombre;
 
 	#[OTableField(
-		name: "apellidos",
 		type: OMODEL_TEXT,
 		comment: "Apellidos del usuario"
 	)]
 	protected string | null $apellidos;
 
 	#[OTableField(
-		name: "created_at",
 		type: OMODEL_CREATED,
 		comment: "Fecha de creación del registro"
 	)]
-	protected string | null $created_at;
+	protected \DateTime | null $created_at;
 
 	#[OTableField(
-		name: "updated_at",
 		type: OMODEL_UPDATED,
 		comment: "Fecha de última modificación del registro"
 	)]
-	protected string | null $updated_at;
+	protected \DateTime | null $updated_at;
 
 	public string $auxiliar;
 }
@@ -78,7 +75,7 @@ $user->update([
 echo "<pre>\n";
 var_dump($user);
 echo "</pre>\n";
-exit();
+//exit();
 
 // Búsqueda
 try {
@@ -89,6 +86,6 @@ catch (Exception $e) {
 	var_dump($e);
 	echo "<pre><br>\n";
 }
-
+exit();
 // Borrado
 $user->delete();

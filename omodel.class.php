@@ -3,9 +3,11 @@
 namespace OsumiFramework\OFW\DB;
 
 use OsumiFramework\OFW\DB\OTable;
+use OsumiFramework\OFW\DB\ODB;
 use \ReflectionClass;
 
 class OModel {
+	protected ODB | null $db       = null;
 	protected bool    $initialized = false;
 	protected bool    $loaded      = false;
 	protected array   $model       = [];
@@ -16,13 +18,17 @@ class OModel {
 	protected ?string $updated     = null;
 
 	function __construct() {
+		$this->db = new ODB();
 		$this->model_name = get_class($this);
 		$rc = new ReflectionClass(get_class($this));
 		$attributes = $rc->getAttributes(OTable::class);
-			
+
 		if (!empty($attributes)) {
 			$table_attribute = $attributes[0]->newInstance();
 			$this->table_name = $table_attribute->name;
+		}
+		else {
+			throw new Exception('Class must have OTable attribute class to set database table name.');
 		}
 
 		$this->initialize();
@@ -37,9 +43,7 @@ class OModel {
 				$attributes = $property->getAttributes(OTableField::class);
 				if (!empty($attributes)) {
 					$field_attribute = $attributes[0]->newInstance();
-					$property_name = $property->name;
-
-					$this->model[$property_name] = [
+					$this->model[$property->name] = [
 						'modified' => false,
 						'initial'  => null,
 						'type'     => $field_attribute->type,
@@ -47,9 +51,9 @@ class OModel {
 						'comment'  => $field_attribute->comment,
 						'incr'     => $field_attribute->incr
 					];
-					$this->validateField($property_name);
+					$this->validateField($property->name);
 
-					$this->$property_name = $field_attribute->default;
+					$this->{$property->name} = $field_attribute->default;
 				}
 			}
 
@@ -136,8 +140,14 @@ class OModel {
 		}
 		foreach ($object as $key => $value) {
 			if (array_key_exists($key, $this->model)) {
-				$this->model[$key]['initial'] = $value;
-				$this->$key = $value;
+				if (!in_array($this->model[$key]['type'], [OMODEL_DATE, OMODEL_CREATED, OMODEL_UPDATED])) {
+					$this->model[$key]['initial'] = $value;
+					$this->{$key} = $value;
+				}
+				else {
+					$this->model[$key]['initial'] = date_create_from_format('Y-m-d H:i:s', $value);
+					$this->{$key} = date_create_from_format('Y-m-d H:i:s', $value);
+				}
 			}
 		}
 	}
@@ -146,7 +156,7 @@ class OModel {
 		if (count($opt) == 0) {
 			return false;
 		}
-		$sql = "SELECT * FROM `".$this->table_name."` WHERE ";
+		$sql = sprintf("SELECT * FROM `%s` WHERE ", $this->table_name);
 		$search_fields = [];
 		foreach ($opt as $key => $value) {
 			if (!array_key_exists($key, $this->model)) {
@@ -154,14 +164,14 @@ class OModel {
 			}
 			if (!is_null($value)) {
 				if ($this->model[$key]['type'] != OMODEL_BOOL) {
-					array_push($search_fields, "`".$key."` = '".$value."' ");
+					array_push($search_fields, sprintf("`%s` = '%s' ", $key, $value));
 				}
 				else {
-					array_push($search_fields, "`".$key."` = ".($value ? 1 : 0)." ");
+					array_push($search_fields, sprintf("`%s` = %d ", $key, ($value ? 1 : 0)));
 				}
 			}
 			else {
-				array_push($search_fields, "`".$key."` IS NULL ");
+				array_push($search_fields, sprintf("`%s` IS NULL ", $key));
 			}
 		}
 		$sql .= implode("AND ", $search_fields);
@@ -169,15 +179,104 @@ class OModel {
 		echo "SQL FIND: ".$sql."<br>\n";
 		//$this->log('find - Query: '.$sql);
 
-		//$this->db->query($sql);
-		//$res = $this->db->next();
+		$this->db->query($sql);
+		$res = $this->db->next();
 
-		//if ($res) {
-			//$this->update($res);
+		if ($res) {
+			$this->update($res);
 			return true;
-		//}
+		}
 
 		return false;
+	}
+
+	public function save() {
+		$save_type = '';
+		$query_params = [];
+
+		// Set last updated date
+		if (!is_null($this->updated)) {
+			$this->{$this->updated} = date('Y-m-d H:i:s', time());
+		}
+
+		// UPDATE
+		if (!is_null($this->{$this->created})) {
+			$sql = sprintf("UPDATE `%s` SET ", $this->table_name);
+			$updated_fields = [];
+			foreach ($this->model as $field) {
+				if ($field['type'] !== OMODEL_PK && $field['type'] !== OMODEL_PK_STR && $field['modified']) {
+					array_push($updated_fields, $field->getUpdateStr());
+					array_push($query_params, $this->{$field});
+				}
+			}
+			// If there is nothing to update, just return
+			if (count($updated_fields)==0){
+				return false;
+			}
+			$sql .= implode(", ", $updated_fields);
+			$sql .= " WHERE ";
+			foreach ($this->pk as $i => $pk_ind) {
+				if ($i != 0) {
+					$sql .= "AND ";
+				}
+				$sql .= "`".$pk_ind."` = ?";
+				array_push($query_params, $this->model->getFields()[$pk_ind]->get());
+			}
+
+			$save_type = 'u';
+		}
+		// INSERT
+		else {
+			$this->model->getFields()[$this->created]->set(date('Y-m-d H:i:s', time()));
+
+			$sql = "INSERT INTO `".$this->table_name."` (";
+			$insert_fields = [];
+			foreach ($this->model->getFields() as $field) {
+				array_push($insert_fields, "`".$field->getName()."`");
+			}
+			$sql .= implode(",", $insert_fields);
+			$sql .= ") VALUES (";
+			$insert_fields = [];
+			foreach ($this->model->getFields() as $field) {
+				$value = $field->get();
+				array_push($insert_fields, $field->getInsertStr());
+				if ($field->getType() === OMODEL_PK && $field->getIncr()) {
+					array_push($query_params, null);
+				}
+				else {
+					array_push($query_params, $value);
+				}
+			}
+			$sql .= implode(",", $insert_fields);
+			$sql .= ")";
+
+			$save_type = 'i';
+		}
+
+		$this->log('save - Query: '.$sql);
+		$this->log('save - Params:');
+		$this->log(var_export($query_params, true));
+
+		// Run the query
+		try {
+			$this->db->query($sql, $query_params);
+		}
+		catch(Exception $ex) {
+			$this->log('ERROR: '.$ex->getMessage());
+			return false;
+		}
+
+		// If table has only a PK and it is incremental, save it
+		if ($save_type == 'i' && count($this->pk)==1 && $this->model->getFields()[$this->pk[0]]->getIncr()) {
+			$this->model->getFields()[$this->pk[0]]->set($this->db->lastId());
+		}
+
+		// Set every field in the model as saved (original = current)
+		foreach($this->model->getFields() as $field){
+			$field->reset();
+		}
+
+		return true;
 	}
 
 	public function delete(): void {
@@ -188,7 +287,7 @@ class OModel {
 		}
 		$sql .= implode("AND ", $delete_fields);
 
-		//$this->db->query($sql);
+		$this->db->query($sql);
 
 		//$this->log('delete - Query: '.$sql);
 		echo "SQL DELETE: ".$sql."<br>\n";
@@ -197,7 +296,7 @@ class OModel {
 	function __set($name, $value) {
 		try {
 			if (array_key_exists($name, $this->model)) {
-				if ($this->model[$property_name]['type'] !== OMODEL_CREATED && $this->model[$property_name]['type'] !== OMODEL_UPDATED) {
+				if ($this->model[$name]['type'] !== OMODEL_CREATED && $this->model[$name]['type'] !== OMODEL_UPDATED) {
 					$this->model[$name]['modified'] = true;
 					$this->name = $value;
 				}

@@ -33,14 +33,23 @@ class ODB {
 	 * @param string $name Name of the database to connect to
 	 */
 	function __construct(string $user='', string $pass='', string $host='', string $name='') {
-		global $core;
+		//global $core;
+		global $config;
 		if (empty($user) ||empty($pass) ||empty($host) ||empty($name) ) {
+			/*
 			$this->setDriver( $core->config->getDB('driver') );
 			$this->setHost( $core->config->getDB('host') );
 			$this->setUser( $core->config->getDB('user') );
 			$this->setPass( $core->config->getDB('pass') );
 			$this->setName( $core->config->getDB('name') );
 			$this->setCharset( $core->config->getDB('charset') );
+			*/
+			$this->setDriver( $config['driver'] );
+			$this->setHost( $config['host'] );
+			$this->setUser( $config['user'] );
+			$this->setPass( $config['pass'] );
+			$this->setName( $config['name'] );
+			$this->setCharset( $config['charset'] );
 		}
 		else {
 			$this->setHost( $host );
